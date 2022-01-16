@@ -1,46 +1,69 @@
 import cv2
-import yolo
-import mobilenetyolo as myolo
+
 import config
 import os
-from tensorflow.keras import models
+import tensorflow as tf 
+import numpy as np
+import utillity as utill
+import yolo_utils
 
 
-weight_path = os.path.join('assets', 'model-mobilenet-yolo.55-97.82.h5')
-val_notation = os.path.join('assets', 'validation.txt')
-train_notation = os.path.join('assets', 'training.txt')
-class_name = os.path.join('assets', 'class_name.txt')
+model_path = os.path.join('assets', 'model.tflite')
+interpreter = tf.lite.Interpreter(model_path=model_path)
+interpreter.allocate_tensors()
+
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
 
 
-cfg = {
-  'image_size' : (608, 608, 3),
-  'anchors' : [5, 8, 15, 28, 37, 61, 80, 125, 159, 230],
-  'stride' : 32,
-  'xyscale': 1.05,
+def preprocessor(img_raw, config, interpreter):
+  anchors = np.array(config['anchors']).reshape((3, 3, 2))
+  
+  img = img_raw /255
+  img = cv2.resize(img, config['image_size'][:2])
+  img = np.array(img, dtype='float32')
+  img_exp = np.expand_dims(img, axis=0)
+  interpreter.set_tensor(input_details[0]['index'], img_exp)
+  interpreter.invoke()
+  large_output = interpreter.get_tensor(output_details[0]['index'])
+  medium_output = interpreter.get_tensor(output_details[1]['index'])
+  small_output = interpreter.get_tensor(output_details[2]['index'])
+  outputs = [large_output, medium_output, small_output]
+  outputs = yolo_utils.yolo_detector(outputs, anchors, 1, config['strides'], config['xyscale'])
+  outputs = utill.nms(outputs, config['image_size'], 1, config['iou_threshold'], config['score_threshold'])
+  boxes = utill.get_detection_data(outputs, img_raw.shape)
+  
+  return utill.draw_bbox(img_raw, boxes)
 
-  # Training
-  'iou_loss_thresh': 0.5,
-  'batch_size': 8,
-  'num_gpu': 1,  # 2,
 
-  # Inference
-  'max_boxes': 100,
-  'iou_threshold': 0.413,
-  'score_threshold': 0.3,
-}
+def preprocessor_light(img_raw, config, interpreter):
+  anchors = np.array(config['anchors']).reshape((5, 2))
+  
+  img = img_raw /255
+  img = cv2.resize(img, config['image_size'][:2])
+  img = np.array(img, dtype='float32')
+  img_exp = np.expand_dims(img, axis=0)
+  interpreter.set_tensor(input_details[0]['index'], img_exp)
+  interpreter.invoke()
+  output = interpreter.get_tensor(output_details[0]['index'])
+ 
+  output = yolo_utils.get_boxes(output, anchors, 1, config['stride'], config['xyscale'])
+  output = utill.nms(output, config['image_size'], 1, config['iou_threshold'], config['score_threshold'])
+  boxes = utill.get_detection_data(output, img_raw.shape)
+  
+  return utill.draw_bbox(img_raw, boxes)
 
 # define a video capture object
 vid = cv2.VideoCapture(0)
-# model = yolo.Yolo(class_name, config.config, weight_path)
-modellight = myolo.MNetYolo(cfg, class_name, weight_path)
+
 
 
 
 while(True):
 
   ret, frame = vid.read()
-  #print(frame.shape)
-  frame = modellight.predict_raw(frame)
+  frame = preprocessor_light(frame, config.cfg_light, interpreter)
+
   cv2.imshow('frame', frame)
 
   if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -49,21 +72,3 @@ while(True):
 
 vid.release()
 cv2.destroyAllWindows()
-
-# matrix = cv2.imread('test.png')
-# print(matrix)
-
-
-# #frame = cv2.resize(frame, (416, 416))
-# #frame = model.predict_raw(frame)
-
-# cv2.imwrite('test.png', frame)
-  
-#     # Display the resulting frame
-# cv2.imshow('frame', frame)
-
-
-# # Destroy all the windows
-# if cv2.waitKey(1) & 0xFF == ord('q'):
-#   vid.release()
-#   cv2.destroyAllWindows()

@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.keras import layers
+from tensorflow.keras import layers, backend
 from tensorflow.python.ops.gen_array_ops import shape
 from layers import conv_block
 from utillity import xywh_to_x1y1x2y2, bbox_iou, bbox_giou
@@ -8,7 +8,6 @@ import numpy as np
 
 def get_boxes(pred, anchors, classes, strides, xyscale):
     # (batch_size, grid_size, grid_size, 3, 5+classes)
-    print(anchors.shape)
     pred = layers.Reshape((pred.shape[1], pred.shape[1], anchors.shape[0], 5 + classes))(pred)
     # (?, 52, 52, 3, 2) (?, 52, 52, 3, 2) (?, 52, 52, 3, 1) (?, 52, 52, 3, 80)
     box_xy, box_wh, obj_prob, class_prob = tf.split(pred, (2, 2, 1, classes), axis=-1)
@@ -39,6 +38,12 @@ def yolo_detector(prediction, anchors, classes, strides, xyscale):
 
     return [*small, *medium, *large]
 
+def yolo_detector_light(prediction, anchors, classes, strides, xyscale):
+
+    medium = get_boxes(prediction[0], anchors[0, :, :], classes, strides[0], xyscale[0])
+    large = get_boxes(prediction[1], anchors[1, :, :], classes, strides[1], xyscale[1])
+    
+    return [*medium, *large]
 
 def yolo_postulate(conv_output, anchors, stride, num_class):
     conv_shape = tf.shape(conv_output)
@@ -172,3 +177,23 @@ def yolo_single_loss(args, number_of_class, iou_loss_thresh, anchors, stride):
 
     return conf_loss + cio_loss + prob_loss
 
+def yolo_loss_light(args, classes, iou_loss_thresh, anchors):
+ 
+    conv_mbbox = args[0]  # (None, 26, 26, 75)
+    conv_lbbox = args[1]  # (None, 13, 13, 75)
+
+    label_mbbox = args[2]  # (None, 26, 26, 3, 25)
+    label_lbbox = args[3]  # (None, 13, 13, 3, 25)
+    true_boxes = args[4]  # (None, 100, 4)
+
+    pred_mbbox = yolo_postulate(conv_mbbox, anchors[0], 16, classes)  # (None, None, None, 3, 25)
+    pred_lbbox = yolo_postulate(conv_lbbox, anchors[1], 32, classes)  # (None, None, None, 3, 25)
+ 
+    mbbox_ciou_loss, mbbox_conf_loss, mbbox_prob_loss = yolo_loss_layer(conv_mbbox, pred_mbbox, label_mbbox, true_boxes, 16, classes, iou_loss_thresh)
+    lbbox_ciou_loss, lbbox_conf_loss, lbbox_prob_loss = yolo_loss_layer(conv_lbbox, pred_lbbox, label_lbbox, true_boxes, 32, classes, iou_loss_thresh)
+
+    ciou_loss = (lbbox_ciou_loss + mbbox_ciou_loss) * 2.54
+    conf_loss = (lbbox_conf_loss + mbbox_conf_loss) * 50.3
+    prob_loss = (lbbox_prob_loss + mbbox_prob_loss) * 1
+
+    return conf_loss + ciou_loss + prob_loss

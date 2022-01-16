@@ -1,7 +1,6 @@
 import os
 from matplotlib import pyplot
 import numpy as np
-from six import iteritems
 
 from tqdm import tqdm
 import cv2
@@ -13,13 +12,13 @@ import json
 import matplotlib.pyplot as plt
 
 from tensorflow.keras import layers, models, optimizers
-from models import MobileNet, FPN
+from models import FPN_light, MobileNet
 
 
-class Yolo(object):
+class Yolo_Light(object):
     def __init__(self, class_name_path, config, weight_path=None):
         super().__init__()
-        self.anchors = np.array(config['anchors']).reshape((3, 3, 2))
+        self.anchors = np.array(config['anchors']).reshape((2, 7, 2))
         self.image_size = config['image_size']
         self.class_name = [line.strip()
                            for line in open(class_name_path).readlines()]
@@ -36,32 +35,27 @@ class Yolo(object):
 
     def build_model(self, load_pretrained=True):
         input_layer = layers.Input(self.image_size)
-        backbone = MobileNet(input_layer, False)
-        output_layer = FPN(backbone, self.number_of_class)
+        backbone = MobileNet(input_layer)
+        output_layer = FPN_light(backbone, self.number_of_class, anchor_size=7)
         self.yolo_model = models.Model(input_layer, output_layer)
 
         if load_pretrained:
             self.yolo_model.load_weights(self.weight_path)
             print(f'load from {self.weight_path}')
 
-        y_true = [
-            # label small boxes
-            layers.Input(shape=(52, 52, 3, (self.number_of_class + 5))),
-            # label medium boxes
-            layers.Input(shape=(26, 26, 3, (self.number_of_class + 5))),
-            # label large boxes
-            layers.Input(shape=(13, 13, 3, (self.number_of_class + 5))),
-            # true bboxes
-            layers.Input(shape=(self.max_boxes, 4)), 
-        ]
+        y_true = [layers.Input(shape=(output.shape[1], output.shape[2], 7, (self.number_of_class + 5))) for output in self.yolo_model.outputs]
+        y_true.append(layers.Input(shape=(self.max_boxes, 4)))
 
-        loss_list = layers.Lambda(yolo.yolo_loss, arguments={
+
+
+        loss_list = layers.Lambda(yolo.yolo_loss_light, arguments={
                                   'classes': self.number_of_class, 'iou_loss_thresh': self.iou_loss_thresh, 'anchors': self.anchors})([*self.yolo_model.outputs, *y_true])
         self.training_model = models.Model(
             [self.yolo_model.input, *y_true], loss_list)
 
-        yolo_output = yolo.yolo_detector(self.yolo_model.outputs, anchors=self.anchors,
+        yolo_output = yolo.yolo_detector_light(self.yolo_model.outputs, anchors=self.anchors,
                                          classes=self.number_of_class, strides=self.strides, xyscale=self.xyscale)
+                                        
         nms = utillity.nms(yolo_output, input_shape=self.image_size, num_class=self.number_of_class,
                            iou_threshold=self.iou_threshold, score_threshold=self.score_threshold)
         self.inferance_model = models.Model(input_layer, nms)
@@ -81,6 +75,7 @@ class Yolo(object):
         img_exp = np.expand_dims(img, axis=0)
         predic = self.inferance_model.predict(img_exp)
         df = utillity.get_detection_data(predic, img_ori.shape)
+        print(df)
         utillity.plot_bbox(img_ori, df, plot_img)
 
     def predict_raw(self, frame):
