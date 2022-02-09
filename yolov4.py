@@ -19,7 +19,8 @@ from models import CSPDarkNet53, PANet
 class YoloV4(object):
     def __init__(self, class_name_path, config, weight_path=None):
         super().__init__()
-        self.anchors = np.array(config['anchors']).reshape((3, 5, 2))
+        self.anchor_size = config['anchor_size_perdetector']
+        self.anchors = np.array(config['anchors']).reshape((config['detector_count'], config['anchor_size_perdetector'], 2))
         self.image_size = config['image_size']
         self.class_name = [line.strip()
                            for line in open(class_name_path).readlines()]
@@ -44,7 +45,7 @@ class YoloV4(object):
             self.yolo_model.load_weights(self.weight_path)
             print(f'load from {self.weight_path}')
 
-        y_true = [layers.Input(shape=(output.shape[1], output.shape[2], 7, (self.number_of_class + 5))) for output in self.yolo_model.outputs]
+        y_true = [layers.Input(shape=(output.shape[1], output.shape[2], self.anchor_size, (self.number_of_class + 5))) for output in self.yolo_model.outputs]
         y_true.append(layers.Input(shape=(self.max_boxes, 4)))
         
         loss_list = layers.Lambda(yolo.yolo_loss, arguments={
