@@ -1,7 +1,7 @@
 from os import name
 from layers import conv_block, depth_wise_separable_convolution, _make_divisible, inverted_res_block, conv, residual_block, csp_block
 from keras import models
-from tensorflow.keras import layers, backend
+from tensorflow.keras import layers
 
 
 def DarkNet53(x):

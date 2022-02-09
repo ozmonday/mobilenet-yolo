@@ -144,7 +144,9 @@ def get_data(data, image_path, target_image_shape, max_boxes=100):
 
 
 def pre_processing_true_bbox(true_boxes, image_size, anchors, num_classes, num_stage, bbox_per_grid):
-    anchor_mask = np.arange(0, num_stage*bbox_per_grid, dtype=int).reshape((num_stage, bbox_per_grid))
+    anchor_mask = np.arange(0, num_stage*bbox_per_grid, dtype=int)
+    anchor_mask = -np.sort(-anchor_mask) # comment this if its worng
+    anchor_mask = anchor_mask.reshape((num_stage, bbox_per_grid))
     anchor_mask = anchor_mask.tolist()
     true_boxes = np.array(true_boxes, dtype='float32')
     true_boxes_abs = np.array(true_boxes, dtype='float32')
@@ -159,9 +161,8 @@ def pre_processing_true_bbox(true_boxes, image_size, anchors, num_classes, num_s
     bs = true_boxes.shape[0]
     grid_size = [image_size // [8, 16, 32][-(s+1)] for s in range(num_stage)]
     #grid_size = [image_size // {0: 8, 1: 16, 2: 32}[s] for s in range(num_stage)]
-    Y_true = [np.zeros((bs, grid_size[-(s+1)][0], grid_size[-(s+1)][1], bbox_per_grid, 5 + num_classes), dtype='float32') for s in
-          range(num_stage)]
-    #Y_true = [np.zeros((bs, grid_size[s][0], grid_size[s][1], bbox_per_grid, 5 + num_classes), dtype='float32') for s in range(num_stage)]
+    #Y_true = [np.zeros((bs, grid_size[-(s+1)][0], grid_size[-(s+1)][1], bbox_per_grid, 5 + num_classes), dtype='float32') for s in range(num_stage)]
+    Y_true = [np.zeros((bs, grid_size[s][0], grid_size[s][1], bbox_per_grid, 5 + num_classes), dtype='float32') for s in range(num_stage)]
     Y_true_bbox_xywh = np.concatenate((true_boxes_xy, true_boxes_wh), axis=-1)
 
     anchors = np.expand_dims(anchors, 0)
@@ -207,7 +208,7 @@ def pre_processing_true_bbox(true_boxes, image_size, anchors, num_classes, num_s
 
                     Y_true[stage][batch_index, grid_row, grid_col, anchor_idx, 5 + class_idx] = 1
 
-    return Y_true, Y_true_bbox_xywh
+    return reversed(Y_true), Y_true_bbox_xywh
 
 
 
