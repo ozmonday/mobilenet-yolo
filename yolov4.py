@@ -60,9 +60,9 @@ class YoloV4(object):
         self.inferance_model = models.Model(input_layer, nms)
 
         lr_scadule = optimizers.schedules.ExponentialDecay(
-          initial_learning_rate=1e-2,
-          decay_steps=8000,
-          decay_rate=0.1
+          initial_learning_rate=1e-3,
+          decay_steps=20000,
+          decay_rate=0.9
         )
 
         self.training_model.compile(optimizer=optimizers.SGD(

@@ -50,7 +50,6 @@ def yolo_postulate(conv_output, anchors, stride, num_class):
     batch_size = conv_shape[0]
     feature_map_size = conv_shape[1]
     anchor_per_scale = anchors.shape[0] # change able
-    print(anchor_per_scale)
     conv_output = tf.reshape(conv_output,
                              (batch_size, feature_map_size, feature_map_size, anchor_per_scale, 5 + num_class))
 
@@ -128,11 +127,9 @@ def yolo_loss_layer(conv, pred, label, bboxes, stride, classes, iou_loss_thresh)
 
 def yolo_loss(args, classes, iou_loss_thresh, anchors):
     conv_sbbox = args[0]  # (None, 52, 52, 75)
-    print(conv_sbbox.shape)
     conv_mbbox = args[1]  # (None, 26, 26, 75)
-    print(conv_mbbox.shape)
     conv_lbbox = args[2]  # (None, 13, 13, 75)
-    print(conv_lbbox.shape)
+
 
     label_sbbox = args[3]  # (None, 52, 52, 3, 25)
     label_mbbox = args[4]  # (None, 26, 26, 3, 25)
