@@ -65,8 +65,8 @@ class YoloV4(object):
           decay_rate=0.9
         )
 
-        self.training_model.compile(optimizer=optimizers.SGD(
-            learning_rate=lr_scadule), loss=lambda y_true, y_pred: y_pred)
+        self.training_model.compile(optimizer=optimizers.Adam(
+            learning_rate=1e-3), loss=lambda y_true, y_pred: y_pred)
     
     def preprocessing_image(self, img):
         img = img /255
