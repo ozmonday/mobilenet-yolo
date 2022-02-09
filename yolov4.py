@@ -19,7 +19,7 @@ from models import CSPDarkNet53, PANet
 class YoloV4(object):
     def __init__(self, class_name_path, config, weight_path=None):
         super().__init__()
-        self.anchors = np.array(config['anchors']).reshape((3, 7, 2))
+        self.anchors = np.array(config['anchors']).reshape((3, 5, 2))
         self.image_size = config['image_size']
         self.class_name = [line.strip()
                            for line in open(class_name_path).readlines()]
