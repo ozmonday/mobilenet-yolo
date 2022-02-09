@@ -145,7 +145,7 @@ def MobileNetV2(inputs, light=True):
 
 
 
-def PANet(backbone_model, num_classes = 1):
+def PANet(backbone_model, num_classes = 1, anchor_size = 3):
     route0, route1, route2 = backbone_model.output
 
     route_input = route2
@@ -174,7 +174,7 @@ def PANet(backbone_model, num_classes = 1):
 
     route0 = x
     x = conv(x, 256, 3)
-    conv_sbbox = conv(x, 3 * (num_classes + 5), 1, activation=None, batch_norm=False)
+    conv_sbbox = conv(x, anchor_size * (num_classes + 5), 1, activation=None, batch_norm=False)
 
     x = conv(route0, 256, 3, downsampling=True)
     x = layers.Concatenate()([x, route1])
@@ -187,7 +187,7 @@ def PANet(backbone_model, num_classes = 1):
 
     route1 = x
     x = conv(x, 512, 3)
-    conv_mbbox = conv(x, 3 * (num_classes + 5), 1, activation=None, batch_norm=False)
+    conv_mbbox = conv(x, anchor_size * (num_classes + 5), 1, activation=None, batch_norm=False)
 
     x = conv(route1, 512, 3, downsampling=True)
     x = layers.Concatenate()([x, route_input])
@@ -199,7 +199,7 @@ def PANet(backbone_model, num_classes = 1):
     x = conv(x, 512, 1)
 
     x = conv(x, 1024, 3)
-    conv_lbbox = conv(x, 3 * (num_classes + 5), 1, activation=None, batch_norm=False)
+    conv_lbbox = conv(x, anchor_size * (num_classes + 5), 1, activation=None, batch_norm=False)
 
     return [conv_sbbox, conv_mbbox, conv_lbbox]
     

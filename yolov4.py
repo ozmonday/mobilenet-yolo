@@ -38,7 +38,7 @@ class YoloV4(object):
     def build_model(self, load_pretrained=True):
         input_layer = layers.Input(self.image_size)
         backbone = CSPDarkNet53(input_layer)
-        output_layer = PANet(backbone, self.number_of_class)
+        output_layer = PANet(backbone, self.number_of_class, self.anchor_size)
         self.yolo_model = models.Model(input_layer, output_layer)
 
         if load_pretrained:
