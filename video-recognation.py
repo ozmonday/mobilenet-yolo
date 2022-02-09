@@ -6,9 +6,10 @@ import tensorflow as tf
 import numpy as np
 import utillity as utill
 import yolo_utils
+import time
 
 
-model_path = os.path.join('assets', 'model.tflite')
+model_path = os.path.join('assets', 'model1.tflite')
 interpreter = tf.lite.Interpreter(model_path=model_path)
 interpreter.allocate_tensors()
 
@@ -55,15 +56,24 @@ def preprocessor_light(img_raw, config, interpreter):
 
 # define a video capture object
 vid = cv2.VideoCapture(0)
+fps = vid.get(cv2.CAP_PROP_FPS)
+print('Frame per Second : {0}'.format(fps))
+num_frame = 1
+
 
 
 
 
 while(True):
-
+  start = time.time()
   ret, frame = vid.read()
-  frame = preprocessor_light(frame, config.cfg_light, interpreter)
+  frame = preprocessor(frame, config.cfg, interpreter)
+  end = time.time()
 
+  second = end - start
+  fps = num_frame/second
+
+  cv2.putText(frame, "FPS : " + str(round(fps)), (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 3, (100, 255, 0), 3, cv2.LINE_AA)
   cv2.imshow('frame', frame)
 
   if cv2.waitKey(1) & 0xFF == ord('q'):

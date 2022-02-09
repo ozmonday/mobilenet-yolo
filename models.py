@@ -1,7 +1,77 @@
 from os import name
-from layers import conv_block, depth_wise_separable_convolution, _make_divisible, inverted_res_block
+from layers import conv_block, depth_wise_separable_convolution, _make_divisible, inverted_res_block, conv, residual_block, csp_block
 from keras import models
 from tensorflow.keras import layers, backend
+
+
+def DarkNet53(x):
+    x = conv(x, 32, 3)
+    x = conv(x, 64, 3, downsampling=True)
+
+    for i in range(1):
+        x = residual_block(x, 32, 64)
+    x = conv(x, 128, 3, downsampling=True)
+
+    for i in range(2):
+        x = residual_block(x, 64, 128)
+    x = conv(x, 256, 3, downsampling=True)
+
+    for i in range(8):
+        x = residual_block(x, 128, 256)
+    route_1 = x
+    x = conv(x, 512, 3, downsampling=True)
+
+    for i in range(8):
+        x = residual_block(x, 256, 512)
+    route_2 = x
+    x = conv(x, 1024, 3, downsampling=True)
+
+    for i in range(4):
+        x = residual_block(x, 512, 1024)
+
+    return route_1, route_2, x
+
+
+def CSPDarkNet53(input):
+    x = conv(input, 32, 3)
+    x = conv(x, 64, 3, downsampling=True)
+
+    x = csp_block(x, residual_out=64, repeat=1, residual_bottleneck=True)
+    x = conv(x, 64, 1, activation='mish')
+    x = conv(x, 128, 3, activation='mish', downsampling=True)
+
+    x = csp_block(x, residual_out=64, repeat=2)
+    x = conv(x, 128, 1, activation='mish')
+    x = conv(x, 256, 3, activation='mish', downsampling=True)
+
+    x = csp_block(x, residual_out=128, repeat=8)
+    x = conv(x, 256, 1, activation='mish')
+    route0 = x
+    x = conv(x, 512, 3, activation='mish', downsampling=True)
+
+    x = csp_block(x, residual_out=256, repeat=8)
+    x = conv(x, 512, 1, activation='mish')
+    route1 = x
+    x = conv(x, 1024, 3, activation='mish', downsampling=True)
+
+    x = csp_block(x, residual_out=512, repeat=4)
+
+    x = conv(x, 1024, 1, activation="mish")
+
+    x = conv(x, 512, 1)
+    x = conv(x, 1024, 3)
+    x = conv(x, 512, 1)
+
+    x = layers.Concatenate()([layers.MaxPooling2D(pool_size=13, strides=1, padding='same')(x),
+                              layers.MaxPooling2D(pool_size=9, strides=1, padding='same')(x),
+                              layers.MaxPooling2D(pool_size=5, strides=1, padding='same')(x),
+                              x
+                              ])
+    x = conv(x, 512, 1)
+    x = conv(x, 1024, 3)
+    route2 = conv(x, 512, 1)
+    return models.Model(input, [route0, route1, route2])
+
 
 
 def MobileNet(inputs, light=True):
@@ -74,6 +144,64 @@ def MobileNetV2(inputs, light=True):
     return models.Model(inputs, [route0, route1, route2], name='mobilenetv2')
 
 
+
+def PANet(backbone_model, num_classes = 1):
+    route0, route1, route2 = backbone_model.output
+
+    route_input = route2
+    x = conv(route2, 256, 1)
+    x = layers.UpSampling2D()(x)
+    route1 = conv(route1, 256, 1)
+    x = layers.Concatenate()([route1, x])
+
+    x = conv(x, 256, 1)
+    x = conv(x, 512, 3)
+    x = conv(x, 256, 1)
+    x = conv(x, 512, 3)
+    x = conv(x, 256, 1)
+
+    route1 = x
+    x = conv(x, 128, 1)
+    x = layers.UpSampling2D()(x)
+    route0 = conv(route0, 128, 1)
+    x = layers.Concatenate()([route0, x])
+
+    x = conv(x, 128, 1)
+    x = conv(x, 256, 3)
+    x = conv(x, 128, 1)
+    x = conv(x, 256, 3)
+    x = conv(x, 128, 1)
+
+    route0 = x
+    x = conv(x, 256, 3)
+    conv_sbbox = conv(x, 3 * (num_classes + 5), 1, activation=None, batch_norm=False)
+
+    x = conv(route0, 256, 3, downsampling=True)
+    x = layers.Concatenate()([x, route1])
+
+    x = conv(x, 256, 1)
+    x = conv(x, 512, 3)
+    x = conv(x, 256, 1)
+    x = conv(x, 512, 3)
+    x = conv(x, 256, 1)
+
+    route1 = x
+    x = conv(x, 512, 3)
+    conv_mbbox = conv(x, 3 * (num_classes + 5), 1, activation=None, batch_norm=False)
+
+    x = conv(route1, 512, 3, downsampling=True)
+    x = layers.Concatenate()([x, route_input])
+
+    x = conv(x, 512, 1)
+    x = conv(x, 1024, 3)
+    x = conv(x, 512, 1)
+    x = conv(x, 1024, 3)
+    x = conv(x, 512, 1)
+
+    x = conv(x, 1024, 3)
+    conv_lbbox = conv(x, 3 * (num_classes + 5), 1, activation=None, batch_norm=False)
+
+    return [conv_sbbox, conv_mbbox, conv_lbbox]
     
 
 

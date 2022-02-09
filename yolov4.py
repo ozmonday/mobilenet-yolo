@@ -1,67 +1,71 @@
-from sys import path
-import models
-import yolo_utils
+import os
+from matplotlib import pyplot
 import numpy as np
+from six import iteritems
+
+from tqdm import tqdm
+import cv2
+import yolo_utils as yolo
 import utillity
 import tensorflow as tf
-import matplotlib.pyplot as plt
-import os
-import cv2
-from tensorflow.keras import layers, models as md, optimizers
-from tqdm import tqdm
 from glob import glob
 import json
+import matplotlib.pyplot as plt
+
+from tensorflow.keras import layers, models, optimizers
+from models import CSPDarkNet53, PANet
 
 
-class MNetYolo():
-    def __init__(self, config, class_name_path, weight_path=None):
+class YoloV4(object):
+    def __init__(self, class_name_path, config, weight_path=None):
+        super().__init__()
+        self.anchors = np.array(config['anchors']).reshape((3, 7, 2))
         self.image_size = config['image_size']
-        self.iou_threshold = config['iou_threshold']
-        self.iou_loss_thresh = config['iou_loss_thresh']
-        self.stride = config['stride']
-        self.xyscale = config['xyscale']
-        self.score_threshold = config['score_threshold']
-        self.max_boxes = config['max_boxes']
         self.class_name = [line.strip()
                            for line in open(class_name_path).readlines()]
         self.number_of_class = len(self.class_name)
-        self.anchors = np.array(config['anchors']).reshape((5, 2))
+        self.max_boxes = config['max_boxes']
+        self.iou_loss_thresh = config['iou_loss_thresh']
+        self.strides = config['strides']
+        self.xyscale = config['xyscale']
+        self.iou_threshold = config['iou_threshold']
+        self.score_threshold = config['score_threshold']
         self.weight_path = weight_path
 
         self.build_model(load_pretrained=True if self.weight_path else False)
 
-    def build_model(self, load_pretrained):
-        inputs = layers.Input(self.image_size)
-        feature_extractor = models.MobileNet(inputs)
-        yolo_head = yolo_utils.yolo_head(
-            feature_extractor.outputs[2], self.number_of_class, anchors_size=5)
-        self.model = md.Model(inputs, yolo_head)
+    def build_model(self, load_pretrained=True):
+        input_layer = layers.Input(self.image_size)
+        backbone = CSPDarkNet53(input_layer)
+        output_layer = PANet(backbone, self.number_of_class)
+        self.yolo_model = models.Model(input_layer, output_layer)
 
         if load_pretrained:
-            self.model.load_weights(self.weight_path)
+            self.yolo_model.load_weights(self.weight_path)
             print(f'load from {self.weight_path}')
 
-        y_true = [
-            layers.Input((19, 19, 5, (self.number_of_class + 5))),
-            layers.Input((self.max_boxes, 4))
-        ]
+        y_true = [layers.Input(shape=(output.shape[1], output.shape[2], 7, (self.number_of_class + 5))) for output in self.yolo_model.outputs]
+        y_true.append(layers.Input(shape=(self.max_boxes, 4)))
+        
+        loss_list = layers.Lambda(yolo.yolo_loss, arguments={
+                                  'classes': self.number_of_class, 'iou_loss_thresh': self.iou_loss_thresh, 'anchors': self.anchors})([*self.yolo_model.outputs, *y_true])
+        self.training_model = models.Model(
+            [self.yolo_model.input, *y_true], loss_list)
 
-        loss_list = layers.Lambda(yolo_utils.yolo_single_loss, arguments={
-            'number_of_class': self.number_of_class,
-            'iou_loss_thresh': self.iou_loss_thresh,
-            'anchors': self.anchors,
-            'stride': self.stride})([self.model.outputs[0], *y_true])
+        yolo_output = yolo.yolo_detector(self.yolo_model.outputs, anchors=self.anchors,
+                                         classes=self.number_of_class, strides=self.strides, xyscale=self.xyscale)
+        nms = utillity.nms(yolo_output, input_shape=self.image_size, num_class=self.number_of_class,
+                           iou_threshold=self.iou_threshold, score_threshold=self.score_threshold)
+        self.inferance_model = models.Model(input_layer, nms)
 
-        self.training_model = md.Model([self.model.input, *y_true], loss_list)
+        lr_scadule = optimizers.schedules.ExponentialDecay(
+          initial_learning_rate=1e-2,
+          decay_steps=8000,
+          decay_rate=0.1
+        )
 
-        model_output = yolo_utils.get_boxes(
-            self.model.outputs[0], self.anchors, self.number_of_class, self.stride, self.xyscale)
-        nms = utillity.nms(model_output, self.image_size,
-                           self.number_of_class, self.iou_threshold, self.score_threshold)
-        self.inferance_model = md.Model(self.model.input, nms)
-
-        self.training_model.compile(optimizer=optimizers.Adam(
-            learning_rate=1e-3), loss=lambda y_true, y_pred: y_pred)
+        self.training_model.compile(optimizer=optimizers.SGD(
+            learning_rate=lr_scadule), loss=lambda y_true, y_pred: y_pred)
     
     def preprocessing_image(self, img):
         img = img /255
@@ -73,17 +77,27 @@ class MNetYolo():
         img = tf.image.resize(img_ori, (self.image_size[0], self.image_size[1]))
         img = img / 255
         img_exp = np.expand_dims(img, axis=0)
-        predict = self.inferance_model.predict(img_exp)
-        df = utillity.get_detection_data(predict, img_ori.shape)
+        predic = self.inferance_model.predict(img_exp)
+        df = utillity.get_detection_data(predic, img_ori.shape)
         utillity.plot_bbox(img_ori, df, plot_img)
-    
+
     def predict_raw(self, frame):
-        img = self.preprocessing_image(frame)
-    
-        img_exp = np.expand_dims(img, axis=0)
-        predic = self.inferance_model(img_exp)
+        frame = cv2.resize(frame, self.image_size[:2])
+        frame = frame /255
+        frame_exp = np.expand_dims(frame, axis=0)
+        predic = self.inferance_model(frame_exp)
         df = utillity.get_detection_data(predic, frame.shape)
         return utillity.draw_bbox(frame, df)
+    
+    def fit(self, data_train, data_validation, initial_epoch, epochs, callback=None):
+        self.training_model.fit(data_train, steps_per_epoch=len(
+            data_train), validation_data=data_validation, epochs=epochs, initial_epoch=initial_epoch, callbacks=callback)
+
+    def build_litemodel(self, model_path):
+        converter = tf.lite.TFLiteConverter.from_keras_model(self.yolo_model)
+        light_model = converter.convert()
+        with open(model_path, 'wb') as f:
+            f.write(light_model)
     
     def export_gt(self, image_notation, image_folder_path, export_path):
         for line in image_notation:
@@ -134,9 +148,6 @@ class MNetYolo():
                         b = boxes[box_idx]
                         pred_file.write(f'{cls_names[box_idx]} {scores[box_idx]} {b[0]} {b[1]} {b[2]} {b[3]}\n')
 
-    def fit(self, data_train, data_validation, initial_epoch, epochs, callback=None):
-        self.training_model.fit(data_train, steps_per_epoch=len(
-            data_train), validation_data=data_validation, epochs=epochs, initial_epoch=initial_epoch, callbacks=callback)
 
     def eval_map(self, gt_folder_path, pred_folder_path, temp_json_folder_path, output_files_path):
         """Process Gt"""
@@ -464,3 +475,4 @@ class MNetYolo():
                 plot_color,
                 ""
             )
+

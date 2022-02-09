@@ -1,4 +1,37 @@
-from tensorflow.keras import layers, backend
+import tensorflow as tf
+from tensorflow.keras import layers, backend, initializers
+
+
+
+def conv(x, filters, kernel_size, downsampling=False, activation='leaky', batch_norm=True):
+    def mish(x):
+        return x * tf.math.tanh(tf.math.softplus(x))
+
+    if downsampling:
+        x = layers.ZeroPadding2D(padding=((1, 0), (1, 0)))(x)  # top & left padding
+        padding = 'valid'
+        strides = 2
+    else:
+        padding = 'same'
+        strides = 1
+    x = layers.Conv2D(filters,
+                      kernel_size,
+                      strides=strides,
+                      padding=padding,
+                      use_bias=not batch_norm,
+                      # kernel_regularizer=regularizers.l2(0.0005),
+                      kernel_initializer=initializers.RandomNormal(mean=0.0, stddev=0.01),
+                      # bias_initializer=initializers.Zeros()
+                      )(x)
+    if batch_norm:
+        x = layers.BatchNormalization()(x)
+    if activation == 'mish':
+        x = mish(x)
+    elif activation == 'leaky':
+        x = layers.LeakyReLU(alpha=0.1)(x)
+    return x
+
+
 
 
 def depth_wise_separable_convolution(inputs, pointwise_filters, depth_multiplier=1, strides=(1, 1), block_id=0):
