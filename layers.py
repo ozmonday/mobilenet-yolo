@@ -32,6 +32,42 @@ def conv(x, filters, kernel_size, downsampling=False, activation='leaky', batch_
     return x
 
 
+def residual_block(x, filters1, filters2, activation='leaky'):
+    """
+    :param x: input tensor
+    :param filters1: num of filter for 1x1 conv
+    :param filters2: num of filter for 3x3 conv
+    :param activation: default activation function: leaky relu
+    :return:
+    """
+    y = conv(x, filters1, kernel_size=1, activation=activation)
+    y = conv(y, filters2, kernel_size=3, activation=activation)
+    return layers.Add()([x, y])
+
+
+def csp_block(x, residual_out, repeat, residual_bottleneck=False):
+    """
+    Cross Stage Partial Network (CSPNet)
+    transition_bottleneck_dims: 1x1 bottleneck
+    output_dims: 3x3
+    :param x:
+    :param residual_out:
+    :param repeat:
+    :param residual_bottleneck:
+    :return:
+    """
+    route = x
+    route = conv(route, residual_out, 1, activation="mish")
+    x = conv(x, residual_out, 1, activation="mish")
+    for i in range(repeat):
+        x = residual_block(x,
+                           residual_out // 2 if residual_bottleneck else residual_out,
+                           residual_out,
+                           activation="mish")
+    x = conv(x, residual_out, 1, activation="mish")
+
+    x = layers.Concatenate()([x, route])
+    return x
 
 
 def depth_wise_separable_convolution(inputs, pointwise_filters, depth_multiplier=1, strides=(1, 1), block_id=0):
