@@ -109,10 +109,10 @@ class YoloV4(object):
 
             with open(output_path, 'w') as gt_file:
                 for object in line['objects']:
-                    x1 = object['data'][0] * img.shape[0]
-                    y1 = object['data'][1] * img.shape[1]
-                    x2 = x1 + (object['data'][2] * img.shape[0])
-                    y2 = y1 + (object['data'][3] * img.shape[1])
+                    x1 = object['data'][0] * img.shape[1]
+                    y1 = object['data'][1] * img.shape[0]
+                    x2 = x1 + (object['data'][2] * img.shape[1])
+                    y2 = y1 + (object['data'][3] * img.shape[0])
                     gt_file.write(f'face {x1} {y1} {x2} {y2}\n')
     
     def export_predict(self, image_anotation, image_folder_path, export_path, betch_size=2):
